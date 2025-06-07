@@ -1,14 +1,16 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from gemini_webapi import Gemini
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from gemini_webapi import GeminiClient  # 修正：使用 GeminiClient
 import os
 import json
 import time
+import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Annotated
 
 load_dotenv()
 
@@ -22,9 +24,56 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 从环境变量获取 Cookie
+# 从环境变量获取配置
 SECURE_1PSID = os.getenv('SECURE_1PSID')
 SECURE_1PSIDTS = os.getenv('SECURE_1PSIDTS')
+API_KEY = os.getenv('API_KEY')
+
+# 检查必要的环境变量
+if not API_KEY:
+    raise ValueError("API_KEY environment variable is required")
+if not SECURE_1PSID:
+    raise ValueError("SECURE_1PSID environment variable is required")
+
+# 全局 Gemini 客户端
+gemini_client = None
+
+async def get_gemini_client():
+    """获取或初始化 Gemini 客户端"""
+    global gemini_client
+    if gemini_client is None:
+        gemini_client = GeminiClient(
+            Secure_1PSID=SECURE_1PSID,
+            Secure_1PSIDTS=SECURE_1PSIDTS or "",  # 如果没有可以为空
+            proxy=None
+        )
+        await gemini_client.init(timeout=30, auto_close=False, auto_refresh=True)
+    return gemini_client
+
+# 验证 API Key
+def verify_api_key_header(authorization: Annotated[str | None, Header()] = None):
+    """验证 Header 中的 API Key"""
+    if not authorization:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # 支持 "Bearer xxx" 格式
+    if authorization.startswith("Bearer "):
+        token = authorization.split(" ")[1]
+    else:
+        # 支持直接传入 token
+        token = authorization
+    
+    if token != API_KEY:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid API key",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return token
 
 # OpenAI API 兼容的数据模型
 class Message(BaseModel):
@@ -40,10 +89,10 @@ class ChatCompletionRequest(BaseModel):
 
 @app.get("/")
 async def root():
-    return {"message": "Gemini to OpenAI API Bridge"}
+    return {"message": "Gemini to OpenAI API Bridge", "status": "running"}
 
 @app.get("/v1/models")
-async def list_models():
+async def list_models(api_key: str = Depends(verify_api_key_header)):
     """列出可用模型 - OpenAI API 兼容"""
     return {
         "object": "list",
@@ -53,19 +102,31 @@ async def list_models():
                 "object": "model",
                 "created": int(time.time()),
                 "owned_by": "google"
+            },
+            {
+                "id": "gemini-2.0-flash",
+                "object": "model", 
+                "created": int(time.time()),
+                "owned_by": "google"
+            },
+            {
+                "id": "gemini-2.5-flash",
+                "object": "model",
+                "created": int(time.time()),
+                "owned_by": "google"
             }
         ]
     }
 
 @app.post("/v1/chat/completions")
-async def chat_completions(request: ChatCompletionRequest):
+async def chat_completions(
+    request: ChatCompletionRequest, 
+    api_key: str = Depends(verify_api_key_header)
+):
     """ChatGPT API 兼容的聊天完成端点"""
     try:
-        # 初始化 Gemini
-        gemini = Gemini(
-            secure_1psid=SECURE_1PSID,
-            secure_1psidts=SECURE_1PSIDTS
-        )
+        # 获取 Gemini 客户端
+        client = await get_gemini_client()
         
         # 提取最后一条用户消息
         user_message = ""
@@ -77,8 +138,14 @@ async def chat_completions(request: ChatCompletionRequest):
         if not user_message:
             raise HTTPException(status_code=400, detail="No user message found")
         
+        # 选择模型
+        model_name = request.model
+        if model_name == "gemini-pro":
+            model_name = "unspecified"  # 默认模型
+        
         # 生成响应
-        response_text = await gemini.generate_content(user_message)
+        response = await client.generate_content(user_message, model=model_name)
+        response_text = response.text
         
         if request.stream:
             # 流式响应
@@ -153,6 +220,18 @@ def generate_stream_response(content: str, model: str):
     }
     yield f"data: {json.dumps(final_chunk)}\n\n"
     yield "data: [DONE]\n\n"
+
+# 健康检查端点（不需要认证）
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+# 应用关闭时清理资源
+@app.on_event("shutdown")
+async def shutdown_event():
+    global gemini_client
+    if gemini_client:
+        await gemini_client.close()
 
 if __name__ == "__main__":
     import uvicorn
