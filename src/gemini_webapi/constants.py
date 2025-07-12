@@ -1,11 +1,13 @@
-from enum import Enum
+from enum import Enum, IntEnum, StrEnum
 
 
-class Endpoint(Enum):
+class Endpoint(StrEnum):
+    GOOGLE = "https://www.google.com"
     INIT = "https://gemini.google.com/app"
     GENERATE = "https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate"
     ROTATE_COOKIES = "https://accounts.google.com/RotateCookies"
     UPLOAD = "https://content-push.googleapis.com/upload"
+    BATCH_EXEC = "https://gemini.google.com/_/BardChatUi/data/batchexecute"
 
 
 class Headers(Enum):
@@ -45,16 +47,6 @@ class Model(Enum):
         {"x-goog-ext-525001261-jspb": '[null,null,null,null,"7ca48d02d802f20a"]'},
         False,
     )  # Deprecated
-    G_2_0_EXP_ADVANCED = (
-        "gemini-2.0-exp-advanced",
-        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"b1e46a6037e6aa9f"]'},
-        True,
-    )  # Deprecated
-    G_2_5_EXP_ADVANCED = (
-        "gemini-2.5-exp-advanced",
-        {"x-goog-ext-525001261-jspb": '[null,null,null,null,"203e6bb81620bcfe"]'},
-        True,
-    )  # Deprecated
 
     def __init__(self, name, header, advanced_only):
         self.model_name = name
@@ -71,7 +63,7 @@ class Model(Enum):
         )
 
 
-class ErrorCode(Enum):
+class ErrorCode(IntEnum):
     """
     Known error codes returned from server.
     """

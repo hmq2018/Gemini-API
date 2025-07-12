@@ -1,11 +1,12 @@
 import asyncio
 import functools
-import json
+import itertools
 import re
 from asyncio import Task
 from pathlib import Path
 from typing import Any, Optional
 
+import orjson as json
 from httpx import AsyncClient, ReadTimeout
 
 from .constants import Endpoint, ErrorCode, Headers, Model
@@ -19,7 +20,7 @@ from .exceptions import (
     ModelInvalid,
     TemporarilyBlocked,
 )
-from .types import WebImage, GeneratedImage, Candidate, ModelOutput
+from .types import WebImage, GeneratedImage, Candidate, ModelOutput, Gem, GemJar
 from .utils import (
     upload_file,
     parse_file_name,
@@ -116,6 +117,7 @@ class GeminiClient:
         "close_task",
         "auto_refresh",
         "refresh_interval",
+        "_gems",
         "kwargs",
     ]
 
@@ -131,12 +133,13 @@ class GeminiClient:
         self.running: bool = False
         self.client: AsyncClient | None = None
         self.access_token: str | None = None
-        self.timeout: float = 30
+        self.timeout: float = 300
         self.auto_close: bool = False
         self.close_delay: float = 300
         self.close_task: Task | None = None
         self.auto_refresh: bool = True
         self.refresh_interval: float = 540
+        self._gems: GemJar | None = None
         self.kwargs = kwargs
 
         # Validate cookies
@@ -274,12 +277,132 @@ class GeminiClient:
                 self.cookies["__Secure-1PSIDTS"] = new_1psidts
             await asyncio.sleep(self.refresh_interval)
 
+    @property
+    def gems(self) -> GemJar:
+        """
+        Returns a `GemJar` object containing cached gems.
+        Only available after calling `GeminiClient.fetch_gems()`.
+
+        Returns
+        -------
+        :class:`GemJar`
+            Refer to `gemini_webapi.types.GemJar`.
+
+        Raises
+        ------
+        `RuntimeError`
+            If `GeminiClient.fetch_gems()` has not been called before accessing this property.
+        """
+
+        if self._gems is None:
+            raise RuntimeError(
+                "Gems not fetched yet. Call `GeminiClient.fetch_gems()` method to fetch gems from gemini.google.com."
+            )
+
+        return self._gems
+
+    @running(retry=2)
+    async def fetch_gems(self, **kwargs) -> GemJar:
+        """
+        Get a list of available gems from gemini, including system predefined gems and user-created custom gems.
+
+        Note that network request will be sent every time this method is called.
+        Once the gems are fetched, they will be cached and accessible via `GeminiClient.gems` property.
+
+        Returns
+        -------
+        :class:`GemJar`
+            Refer to `gemini_webapi.types.GemJar`.
+        """
+
+        try:
+            response = await self.client.post(
+                Endpoint.BATCH_EXEC,
+                data={
+                    "at": self.access_token,
+                    "f.req": json.dumps(
+                        [
+                            [
+                                ["CNgdBe", '[2,["en"],0]', None, "custom"],
+                                ["CNgdBe", '[3,["en"],0]', None, "system"],
+                            ]
+                        ]
+                    ).decode(),
+                },
+                **kwargs,
+            )
+        except ReadTimeout:
+            raise TimeoutError(
+                "Fetch gems request timed out, please try again. If the problem persists, "
+                "consider setting a higher `timeout` value when initializing GeminiClient."
+            )
+
+        if response.status_code != 200:
+            raise APIError(
+                f"Failed to fetch gems. Request failed with status code {response.status_code}"
+            )
+        else:
+            try:
+                response_json = json.loads(response.text.split("\n")[2])
+
+                predefined_gems, custom_gems = [], []
+
+                for part in response_json:
+                    if part[-1] == "system":
+                        predefined_gems = json.loads(part[2])[2]
+                    elif part[-1] == "custom":
+                        if custom_gems_container := json.loads(part[2]):
+                            custom_gems = custom_gems_container[2]
+
+                if not predefined_gems and not custom_gems:
+                    raise Exception
+            except Exception:
+                await self.close()
+                logger.debug(f"Invalid response: {response.text}")
+                raise APIError(
+                    "Failed to fetch gems. Invalid response data received. Client will try to re-initialize on next request."
+                )
+
+        self._gems = GemJar(
+            itertools.chain(
+                (
+                    (
+                        gem[0],
+                        Gem(
+                            id=gem[0],
+                            name=gem[1][0],
+                            description=gem[1][1],
+                            prompt=gem[2] and gem[2][0] or None,
+                            predefined=True,
+                        ),
+                    )
+                    for gem in predefined_gems
+                ),
+                (
+                    (
+                        gem[0],
+                        Gem(
+                            id=gem[0],
+                            name=gem[1][0],
+                            description=gem[1][1],
+                            prompt=gem[2] and gem[2][0] or None,
+                            predefined=False,
+                        ),
+                    )
+                    for gem in custom_gems
+                ),
+            )
+        )
+
+        return self._gems
+
     @running(retry=2)
     async def generate_content(
         self,
         prompt: str,
         files: list[str | Path] | None = None,
         model: Model | str = Model.UNSPECIFIED,
+        gem: Gem | str | None = None,
         chat: Optional["ChatSession"] = None,
         **kwargs,
     ) -> ModelOutput:
@@ -295,6 +418,9 @@ class GeminiClient:
         model: `Model` | `str`, optional
             Specify the model to use for generation.
             Pass either a `gemini_webapi.constants.Model` enum or a model name string.
+        gem: `Gem | str`, optional
+            Specify a gem to use as system prompt for the chat session.
+            Pass either a `gemini_webapi.types.Gem` object or a gem id string.
         chat: `ChatSession`, optional
             Chat data to retrieve conversation history. If None, will automatically generate a new chat id when sending post request.
         kwargs: `dict`, optional
@@ -324,6 +450,9 @@ class GeminiClient:
 
         if not isinstance(model, Model):
             model = Model.from_name(model)
+
+        if isinstance(gem, Gem):
+            gem = gem.id
 
         if self.auto_close:
             await self.reset_close_task()
@@ -356,15 +485,17 @@ class GeminiClient:
                                     None,
                                     chat and chat.metadata,
                                 ]
-                            ),
+                                + (gem and [None] * 16 + [gem] or [])
+                            ).decode(),
                         ]
-                    ),
+                    ).decode(),
                 },
                 **kwargs,
             )
         except ReadTimeout:
             raise TimeoutError(
-                "Request timed out, please try again. If the problem persists, consider setting a higher `timeout` value when initializing GeminiClient."
+                "Generate content request timed out, please try again. If the problem persists, "
+                "consider setting a higher `timeout` value when initializing GeminiClient."
             )
 
         if response.status_code != 200:
@@ -554,6 +685,9 @@ class ChatSession:
     model: `Model` | `str`, optional
         Specify the model to use for generation.
         Pass either a `gemini_webapi.constants.Model` enum or a model name string.
+    gem: `Gem | str`, optional
+        Specify a gem to use as system prompt for the chat session.
+        Pass either a `gemini_webapi.types.Gem` object or a gem id string.
     """
 
     __slots__ = [
@@ -561,6 +695,7 @@ class ChatSession:
         "geminiclient",
         "last_output",
         "model",
+        "gem",
     ]
 
     def __init__(
@@ -571,11 +706,13 @@ class ChatSession:
         rid: str | None = None,  # reply id
         rcid: str | None = None,  # reply candidate id
         model: Model | str = Model.UNSPECIFIED,
+        gem: Gem | str | None = None,
     ):
         self.__metadata: list[str | None] = [None, None, None]
         self.geminiclient: GeminiClient = geminiclient
         self.last_output: ModelOutput | None = None
-        self.model = model
+        self.model: Model | str = model
+        self.gem: Gem | str | None = gem
 
         if metadata:
             self.metadata = metadata
@@ -638,7 +775,12 @@ class ChatSession:
         """
 
         return await self.geminiclient.generate_content(
-            prompt=prompt, files=files, model=self.model, chat=self, **kwargs
+            prompt=prompt,
+            files=files,
+            model=self.model,
+            gem=self.gem,
+            chat=self,
+            **kwargs,
         )
 
     def choose_candidate(self, index: int) -> ModelOutput:

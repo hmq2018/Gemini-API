@@ -30,8 +30,9 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 
 - **Persistent Cookies** - Automatically refreshes cookies in background. Optimized for always-on services.
 - **Image Generation** - Natively supports generating and modifying images with natural language.
+- **System Prompt** - Supports customizing model's system prompt with [Gemini Gems](https://gemini.google.com/gems/view).
 - **Extension Support** - Supports generating contents with [Gemini extensions](https://gemini.google.com/extensions) on, like YouTube and Gmail.
-- **Classified Outputs** - Automatically categorizes texts, web images and AI generated images in the response.
+- **Classified Outputs** - Categorizes texts, thoughts, web images and AI generated images in the response.
 - **Official Flavor** - Provides a simple and elegant interface inspired by [Google Generative AI](https://ai.google.dev/tutorials/python_quickstart)'s official API.
 - **Asynchronous** - Utilizes `asyncio` to run generating tasks and return outputs efficiently.
 
@@ -43,14 +44,15 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 - [Authentication](#authentication)
 - [Usage](#usage)
   - [Initialization](#initialization)
-  - [Select language model](#select-language-model)
-  - [Generate contents from text](#generate-contents-from-text)
+  - [Generate contents](#generate-contents)
   - [Generate contents with files](#generate-contents-with-files)
   - [Conversations across multiple turns](#conversations-across-multiple-turns)
   - [Continue previous conversations](#continue-previous-conversations)
+  - [Select language model](#select-language-model)
+  - [Apply system prompt with Gemini Gems](#apply-system-prompt-with-gemini-gems)
   - [Retrieve model's thought process](#retrieve-models-thought-process)
   - [Retrieve images in response](#retrieve-images-in-response)
-  - [Generate images with Imagen3](#generate-images-with-imagen3)
+  - [Generate images with Imagen4](#generate-images-with-imagen4)
   - [Generate contents with Gemini extensions](#generate-contents-with-gemini-extensions)
   - [Check and switch to other reply candidates](#check-and-switch-to-other-reply-candidates)
   - [Logging Configuration](#logging-configuration)
@@ -65,13 +67,13 @@ A reverse-engineered asynchronous python wrapper for [Google Gemini](https://gem
 
 Install/update the package with pip.
 
-```bash
+```sh
 pip install -U gemini_webapi
 ```
 
 Optionally, package offers a way to automatically import cookies from your local browser. To enable this feature, install `browser-cookie3` as well. Supported platforms and browsers can be found [here](https://github.com/borisbabic/browser_cookie3?tab=readme-ov-file#contribute).
 
-```bash
+```sh
 pip install -U browser-cookie3
 ```
 
@@ -133,43 +135,9 @@ asyncio.run(main())
 >
 > `auto_close` and `close_delay` are optional arguments for automatically closing the client after a certain period of inactivity. This feature is disabled by default. In an always-on service like chatbot, it's recommended to set `auto_close` to `True` combined with reasonable seconds of `close_delay` for better resource management.
 
-### Select language model
+### Generate contents
 
-You can specify which language model to use by passing `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
-
-Currently available models (as of Feb 5, 2025):
-
-- `unspecified` - Default model
-- `gemini-2.0-flash` - Gemini 2.0 Flash
-- `gemini-2.0-flash-thinking` - Gemini 2.0 Flash Thinking Experimental
-- `gemini-2.5-flash` - Gemini 2.5 Flash
-- `gemini-2.5-pro` - Gemini 2.5 Pro (daily usage limit imposed)
-
-Models pending update (may not work as expected):
-
-- `gemini-2.5-exp-advanced` - Gemini 2.5 Experimental Advanced **(requires Gemini Advanced account)**
-- `gemini-2.0-exp-advanced` - Gemini 2.0 Experimental Advanced **(requires Gemini Advanced account)**
-
-```python
-from gemini_webapi.constants import Model
-
-async def main():
-    response1 = await client.generate_content(
-        "What's you language model version? Reply version number only.",
-        model=Model.G_2_0_FLASH,
-    )
-    print(f"Model version ({Model.G_2_0_FLASH.model_name}): {response1.text}")
-
-    chat = client.start_chat(model="gemini-2.0-flash-thinking")
-    response2 = await chat.send_message("What's you language model version? Reply version number only.")
-    print(f"Model version (gemini-2.0-flash-thinking): {response2.text}")
-
-asyncio.run(main())
-```
-
-### Generate contents from text
-
-Ask a one-turn quick question by calling `GeminiClient.generate_content`.
+Ask a single-turn question by calling `GeminiClient.generate_content`, which returns a `gemini_webapi.ModelOutput` object containing the generated text, images, thoughts, and conversation metadata.
 
 ```python
 async def main():
@@ -200,7 +168,7 @@ asyncio.run(main())
 
 ### Conversations across multiple turns
 
-If you want to keep conversation continuous, please use `GeminiClient.start_chat` to create a `ChatSession` object and send messages through it. The conversation history will be automatically handled and get updated after each turn.
+If you want to keep conversation continuous, please use `GeminiClient.start_chat` to create a `gemini_webapi.ChatSession` object and send messages through it. The conversation history will be automatically handled and get updated after each turn.
 
 ```python
 async def main():
@@ -243,6 +211,70 @@ async def main():
 asyncio.run(main())
 ```
 
+### Select language model
+
+You can specify which language model to use by passing `model` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. The default value is `unspecified`.
+
+Currently available models (as of June 12, 2025):
+
+- `unspecified` - Default model
+- `gemini-2.5-flash` - Gemini 2.5 Flash
+- `gemini-2.5-pro` - Gemini 2.5 Pro (daily usage limit imposed)
+
+Deprecated models (yet still working):
+
+- `gemini-2.0-flash` - Gemini 2.0 Flash
+- `gemini-2.0-flash-thinking` - Gemini 2.0 Flash Thinking
+
+```python
+from gemini_webapi.constants import Model
+
+async def main():
+    response1 = await client.generate_content(
+        "What's you language model version? Reply version number only.",
+        model=Model.G_2_5_FLASH,
+    )
+    print(f"Model version ({Model.G_2_5_FLASH.model_name}): {response1.text}")
+
+    chat = client.start_chat(model="gemini-2.5-pro")
+    response2 = await chat.send_message("What's you language model version? Reply version number only.")
+    print(f"Model version (gemini-2.5-pro): {response2.text}")
+
+asyncio.run(main())
+```
+
+### Apply system prompt with Gemini Gems
+
+System prompt can be applied to conversations via [Gemini Gems](https://gemini.google.com/gems/view). To use a gem, you can pass `gem` argument to `GeminiClient.generate_content` or `GeminiClient.start_chat`. `gem` can be either a string of gem id or a `gemini_webapi.Gem` object. Only one gem can be applied to a single conversation.
+
+```python
+async def main():
+    # Fetch all gems for the current account, including both predefined and user-created ones
+    await client.fetch_gems()
+
+    # Once fetched, gems will be cached in `GeminiClient.gems`
+    gems = client.gems
+
+    # Get the gem you want to use
+    system_gems = gems.filter(predefined=True)
+    coding_partner = system_gems.get(id="coding-partner")
+
+    response1 = await client.generate_content(
+        "what's your system prompt?",
+        model=Model.G_2_5_FLASH,
+        gem=coding_partner,
+    )
+    print(response1.text)
+
+    # Another example with a user-created custom gem
+    # Gem ids are consistent strings. Store them somewhere to avoid fetching gems every time
+    your_gem = gems.get(name="Your Gem Name")
+    your_gem_id = your_gem.id
+    chat = client.start_chat(gem=your_gem_id)
+    response2 = await chat.send_message("what's your system prompt?")
+    print(response2)
+```
+
 ### Retrieve model's thought process
 
 When using models with thinking capabilities, the model's thought process will be populated in `ModelOutput.thoughts`.
@@ -250,7 +282,7 @@ When using models with thinking capabilities, the model's thought process will b
 ```python
 async def main():
     response = await client.generate_content(
-            "What's 1+1?", model="gemini-2.0-flash-thinking"
+            "What's 1+1?", model="gemini-2.5-pro"
         )
     print(response.thoughts)
     print(response.text)
@@ -260,7 +292,7 @@ asyncio.run(main())
 
 ### Retrieve images in response
 
-Images in the API's output are stored as a list of `Image` objects. You can access the image title, URL, and description by calling `image.title`, `image.url` and `image.alt` respectively.
+Images in the API's output are stored as a list of `gemini_webapi.Image` objects. You can access the image title, URL, and description by calling `Image.title`, `Image.url` and `Image.alt` respectively.
 
 ```python
 async def main():
@@ -271,9 +303,9 @@ async def main():
 asyncio.run(main())
 ```
 
-### Generate images with Imagen3
+### Generate images with Imagen4
 
-You can ask Gemini to generate and modify images with Imagen3, Google's latest AI image generator, simply by natural language.
+You can ask Gemini to generate and modify images with Imagen4, Google's latest AI image generator, simply by natural language.
 
 > [!IMPORTANT]
 >
@@ -332,7 +364,7 @@ asyncio.run(main())
 
 ### Check and switch to other reply candidates
 
-A response from Gemini usually contains multiple reply candidates with different generated contents. You can check all candidates and choose one to continue the conversation. By default, the first candidate will be chosen automatically.
+A response from Gemini sometimes contains multiple reply candidates with different generated contents. You can check all candidates and choose one to continue the conversation. By default, the first candidate will be chosen.
 
 ```python
 async def main():

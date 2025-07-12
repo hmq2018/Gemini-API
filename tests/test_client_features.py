@@ -3,9 +3,9 @@ import unittest
 import logging
 from pathlib import Path
 
-from gemini_webapi import GeminiClient, AuthError, set_log_level, logger
+from gemini_webapi import GeminiClient, Gem, set_log_level, logger
 from gemini_webapi.constants import Model
-from gemini_webapi.exceptions import UsageLimitExceeded, ModelInvalid
+from gemini_webapi.exceptions import AuthError, UsageLimitExceeded, ModelInvalid
 
 logging.getLogger("asyncio").setLevel(logging.ERROR)
 set_log_level("DEBUG")
@@ -14,7 +14,7 @@ set_log_level("DEBUG")
 class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.geminiclient = GeminiClient(
-            os.getenv("SECURE_1PSID"), os.getenv("SECURE_1PSIDTS")
+            os.getenv("SECURE_1PSID"), os.getenv("SECURE_1PSIDTS"), verify=False
         )
 
         try:
@@ -28,15 +28,6 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
             "Tell me a fact about today in history and illustrate it with a youtube video",
             model=Model.G_2_5_FLASH,
         )
-        logger.debug(response.text)
-
-    @logger.catch(reraise=True)
-    async def test_thinking_model(self):
-        response = await self.geminiclient.generate_content(
-            "1+1=?",
-            model=Model.G_2_5_FLASH,
-        )
-        logger.debug(response.thoughts)
         logger.debug(response.text)
 
     @logger.catch(reraise=True)
@@ -74,6 +65,54 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         logger.debug(response2.text)
 
     @logger.catch(reraise=True)
+    async def test_send_web_image(self):
+        response = await self.geminiclient.generate_content(
+            "Send me some pictures of cats"
+        )
+        self.assertTrue(response.images)
+        logger.debug(response.text)
+        for image in response.images:
+            self.assertTrue(image.url)
+            logger.debug(image)
+
+    @logger.catch(reraise=True)
+    async def test_image_generation(self):
+        response = await self.geminiclient.generate_content(
+            "Generate some pictures of cats"
+        )
+        self.assertTrue(response.images)
+        logger.debug(response.text)
+        for image in response.images:
+            self.assertTrue(image.url)
+            logger.debug(image)
+
+    @logger.catch(reraise=True)
+    async def test_generation_with_gem(self):
+        response = await self.geminiclient.generate_content(
+            "what's your system prompt?",
+            model=Model.G_2_5_FLASH,
+            gem=Gem(id="coding-partner", name="Coding partner", predefined=True),
+        )
+        logger.debug(response.text)
+
+    @logger.catch(reraise=True)
+    async def test_fetch_gems(self):
+        await self.geminiclient.fetch_gems()
+        gems = self.geminiclient.gems
+        self.assertTrue(len(gems.filter(predefined=True)) > 0)
+        for gem in gems:
+            logger.debug(gem.name)
+
+    @logger.catch(reraise=True)
+    async def test_thinking_model(self):
+        response = await self.geminiclient.generate_content(
+            "1+1=?",
+            model=Model.G_2_5_PRO,
+        )
+        logger.debug(response.thoughts)
+        logger.debug(response.text)
+
+    @logger.catch(reraise=True)
     async def test_retrieve_previous_conversation(self):
         chat = self.geminiclient.start_chat()
         await chat.send_message("Fine weather today")
@@ -97,28 +136,6 @@ class TestGeminiClient(unittest.IsolatedAsyncioTestCase):
         )
         logger.debug(response2.text)
         logger.debug(response2.images)
-
-    @logger.catch(reraise=True)
-    async def test_send_web_image(self):
-        response = await self.geminiclient.generate_content(
-            "Send me some pictures of cats"
-        )
-        self.assertTrue(response.images)
-        logger.debug(response.text)
-        for image in response.images:
-            self.assertTrue(image.url)
-            logger.debug(image)
-
-    @logger.catch(reraise=True)
-    async def test_image_generation(self):
-        response = await self.geminiclient.generate_content(
-            "Generate some pictures of cats"
-        )
-        self.assertTrue(response.images)
-        logger.debug(response.text)
-        for image in response.images:
-            self.assertTrue(image.url)
-            logger.debug(image)
 
     @logger.catch(reraise=True)
     async def test_card_content(self):
