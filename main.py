@@ -22,6 +22,8 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any, Annotated
 from contextlib import asynccontextmanager
+import markdown
+
 
 load_dotenv()
 
@@ -193,8 +195,9 @@ async def chat_completions(
         response_text = response.text
         
         if response_text:
-            response_text = response_text.replace('\\n', '\n')
-        
+            #response_text = response_text.replace('\\n', '\n')
+            response_text = response_text.replace('\\n', r'<br>')
+            
         if request.stream:
             # 修正：使用正确的 content-type
             return StreamingResponse(
