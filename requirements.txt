@@ -5,3 +5,4 @@ python-dotenv>=0.34.3
 httpx[http2]>=0.28.1
 loguru>=0.7.3
 pydantic>=2.11.3
+markdown>=3.8.2
