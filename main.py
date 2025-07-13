@@ -197,7 +197,10 @@ async def chat_completions(
         if response_text:
             #response_text = response_text.replace('\\n', '\n')
             response_text = response_text.replace('\\n', r'<br>')
-            
+
+        #debug
+        request.stream = False
+        
         if request.stream:
             # 修正：使用正确的 content-type
             return StreamingResponse(
