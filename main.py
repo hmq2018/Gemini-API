@@ -191,7 +191,10 @@ async def chat_completions(
         # 生成响应
         response = await client.generate_content(user_message, model=model_name)
         response_text = response.text
-
+        
+        if response_text:
+            response_text = response_text.replace('\\n', '\n')
+        
         if request.stream:
             # 修正：使用正确的 content-type
             return StreamingResponse(
