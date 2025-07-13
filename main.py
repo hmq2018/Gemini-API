@@ -50,7 +50,7 @@ async def get_gemini_client():
             secure_1psidts=SECURE_1PSIDTS or "",  # 如果没有可以为空
             proxy=None
         )
-        await gemini_client.init(timeout=30, auto_close=False, auto_refresh=True, verbose=True)
+        await gemini_client.init(timeout=30, auto_close=True, auto_refresh=True, verbose=True)
     return gemini_client
 
 
