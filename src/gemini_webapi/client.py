@@ -532,7 +532,7 @@ class GeminiClient:
                         case ErrorCode.MODEL_HEADER_INVALID:
                             raise ModelInvalid(
                                 "Failed to generate contents. The specified model is not available. Please update gemini_webapi to the latest version. "
-                                "If the error persists and is caused by the package, please report it on GitHub."
+                                "If the error persists and is caused by the package, please report it on GitHub. \n err:{response.text}"
                             )
                         case ErrorCode.IP_TEMPORARILY_BLOCKED:
                             raise TemporarilyBlocked(
