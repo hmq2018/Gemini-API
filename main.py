@@ -116,7 +116,7 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: Optional[int] = None
 
 
-@app.get("/")
+@app.get("/", methods=['GET','HEAD'])
 async def root():
     return {"message": "Gemini to OpenAI API Bridge", "status": "running"}
 
