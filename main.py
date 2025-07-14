@@ -194,9 +194,9 @@ async def chat_completions(
         response = await client.generate_content(user_message, model=model_name)
         response_text = response.text
         
-        if response_text:
-            #response_text = response_text.replace('\\n', '\n')
-            response_text = response_text.replace('\\n', r'<br>')
+        #if response_text:
+        #    #response_text = response_text.replace('\\n', '\n')
+        #    response_text = response_text.replace('\\n', r'<br>')
 
         #debug
         request.stream = False
