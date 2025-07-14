@@ -193,11 +193,17 @@ async def chat_completions(
         # 生成响应
         response = await client.generate_content(user_message, model=model_name)
         response_text = response.text
-        
-        #if response_text:
-        #    #response_text = response_text.replace('\\n', '\n')
-        #    response_text = response_text.replace('\\n', r'<br>')
+    
 
+        if response_text:
+            # 替换常见的转义字符
+            response_text = response_text.replace('\\n', '\n')  # 换行符
+            response_text = response_text.replace('\\t', '\t')  # 制表符
+            response_text = response_text.replace('\\"', '"')  # 双引号
+            response_text = response_text.replace("\\'", "'")  # 单引号
+            response_text = response_text.replace('\\\\', '\\')  # 反斜杠
+
+        
         #debug
         request.stream = False
         
